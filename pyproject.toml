@@ -1,0 +1,12 @@
+[tool.poetry]
+package-mode = false
+name = "behave-gcp-test-automation"
+version = "0.0.1"
+description = "A test automation suite using the Behave automation framework for use with GCP"
+authors = ["Something Test Related"]
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+behave = "1.2.6"
+google-cloud-bigquery = "^3.34.0"
+google-cloud-storage = "^3.2.0"
