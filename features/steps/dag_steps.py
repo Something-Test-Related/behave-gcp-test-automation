@@ -1,5 +1,6 @@
 from behave import *
 import subprocess, re
+from polling import poll
 
 
 # Execute command as a subprocess
@@ -14,9 +15,11 @@ def run_subprocess(cmd, allow_error=False):
     return out.decode('utf-8')
 
 
-# Kick off a dag with no parameters
+# Kick off a dag with no parameters and wait for it to finish
 @step('a DAG called "{dag}" is run')
 def step_impl(context, dag):
+
+    # Trigger the given DAG using gcloud executed as a subprocess
     run_cmd = f"gcloud composer environments run test-env --location europe-west12 dags trigger -- {dag} -o json"
     
     result = run_subprocess(run_cmd)
@@ -25,5 +28,28 @@ def step_impl(context, dag):
     if not run_time:
         raise Exception(f"No run time could be determined while triggering DAG {dag}")
     
-    run_time = run_time.group(1)
-    context.dag_run_time = run_time
+    # Store the execution time so we can reference this specific run again
+    dag_run_time = run_time.group(1)
+    context.dag_run_time = dag_run_time
+
+    state_cmd = f"gcloud composer environments run test-env --location europe-west12 dags state -- {dag} {dag_run_time}"
+    poll_lambda = lambda: not any(status in run_subprocess(state_cmd) for status in ["queued", "running"])
+
+    # Poll the status of the running DAG until it is no longer marked as queued or running
+    # Timeout of 10 minutes 
+    poll(poll_lambda, step=5, timeout=600)
+
+
+# Check the state of a DAG run to ensure it is as expected
+@then('the last run of DAG "{dag}" should have state "{expected_state}"')
+def step_impl(context, dag, expected_state):
+
+    # Ensure we have a saved dag_run_time before continuing 
+    if not context.dag_run_time:
+        raise Exception(f"No saved run time exists. Ensure a DAG has been run before checking the status")
+
+    state_cmd = f"gcloud composer environments run test-env --location europe-west12 dags state -- {dag} {context.dag_run_time}"
+    state_response = run_subprocess(state_cmd)
+
+    if expected_state not in state_response:
+        raise Exception(f"Expected {dag} run status to be {expected_state} but found {state_response}")
