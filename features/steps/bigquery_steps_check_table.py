@@ -1,5 +1,6 @@
 from behave import *
 
+
 # Check table with the given name exists
 @step('a table called "{table_name}" exists')
 @step('a table called "{table_name}" should exist')
@@ -73,7 +74,7 @@ def step_impl(context, table_name, partition):
             f"Expected partition column {expected_partition} to exist in table {table_name}, but found: {actual_partition}")
 
 
-# Ensure the given table is not partitioned
+# Check the table in BigQuery is not partitioned
 @then('the table "{table_name}" should not be partitioned')
 def step_impl(context, table_name):
     table_path = table_name.split(".")
@@ -92,3 +93,23 @@ def step_impl(context, table_name):
     if len(actual_partitions) > 0:
         raise Exception(
             f"Expected no partitions to exist in table {table_name} but found partition: {actual_partitions[0]}")
+    
+
+# Check the table in BigQuery has the expected row count
+@given('table "{table_name}" contains "{row_count}" rows')
+@then('table "{table_name}" should contain "{row_count}" rows')
+def step_impl(context, table_name, row_count):
+
+    row_count_query = """
+    SELECT COUNT(*) FROM {TABLE_NAME} t
+    """.format(TABLE_NAME=table_name)
+
+    query_job = context.bigquery.query(row_count_query)
+    results = query_job.result()
+
+    for result in results:
+        actual_row_count = result.values()[0]
+
+    if(actual_row_count != int(row_count)):
+        raise Exception(
+            f"Expected {table_name} to have {row_count} rows, but found {actual_row_count} rows")
