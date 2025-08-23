@@ -1,0 +1,4 @@
+string_column,int_column,float_column,numeric_column,bool_column,timestamp_column,date_column,datetime_column,json_column
+sample1,12345,123.45,678.90,true,2025-12-25 12:12:12,2025-12-12,2025-12-25 12:12:12,{"key12":"value12"}
+sample2,67890,555.44,111.22,false,2025-12-26 13:13:13,2025-12-26,2025-12-26 13:13:13,
+sample3,11111,,10.90,true,2025-12-27 14:14:14,2025-12-27,2025-12-27 14:14:14,{"key13":"value13"}
