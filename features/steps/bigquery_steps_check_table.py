@@ -13,13 +13,13 @@ def step_impl(context, table_name):
 
 
 # Check the table in BigQuery has the expected column names and data types
+@step('the table "{table_name}" contains the following structure')
 @then('the table "{table_name}" should contain the following structure')
 def step_impl(context, table_name):
 
     # Gherkin table detailing column names and types required
     if not context.table:
-        raise ValueError(
-            "this step requires a Gherkin table detailing column names and types")
+        raise Exception("this step requires a Gherkin table detailing column names and types")
 
     table_path = table_name.split(".")
 
@@ -27,8 +27,7 @@ def step_impl(context, table_name):
     SELECT field_path, data_type
     FROM {dataset}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS
     WHERE table_name = "{table}"
-    """.format(dataset=table_path[0],table=table_path[1]
-    )
+    """.format(dataset=table_path[0],table=table_path[1])
 
     query_job = context.bigquery.query(structure_query)
     result = query_job.result()
@@ -40,11 +39,12 @@ def step_impl(context, table_name):
     # Check all expected column names and types are present in the BQ table
     missing_columns = expected_structure - actual_structure
     if missing_columns:
-        raise Exception(
+        raise AssertionError(
             f"Expected the following column(s) to exist in {table_name}: {', '.join(f'{col[0]} ({col[1]})' for col in missing_columns)}")
 
 
 # Check the table in BigQuery is partitioned as expected
+@step('the table "{table_name}" is partitioned by column "{partition}"')
 @then('the table "{table_name}" should be partitioned by column "{partition}"')
 def step_impl(context, table_name, partition):
     # Split the table_name to get dataset and table
@@ -75,6 +75,7 @@ def step_impl(context, table_name, partition):
 
 
 # Check the table in BigQuery is not partitioned
+@step('the table "{table_name}" is not partitioned')
 @then('the table "{table_name}" should not be partitioned')
 def step_impl(context, table_name):
     table_path = table_name.split(".")
@@ -91,7 +92,7 @@ def step_impl(context, table_name):
     actual_partitions = [row['column_name'] for row in results]
 
     if len(actual_partitions) > 0:
-        raise Exception(
+        raise AssertionError(
             f"Expected no partitions to exist in table {table_name} but found partition: {actual_partitions[0]}")
     
 
@@ -111,5 +112,62 @@ def step_impl(context, table_name, row_count):
         actual_row_count = result.values()[0]
 
     if(actual_row_count != int(row_count)):
-        raise Exception(
+        raise AssertionError(
             f"Expected {table_name} to have {row_count} rows, but found {actual_row_count} rows")
+
+
+# Check that rows exist in the given table with the given values
+@then('table "{table_name}" should contain the following data')
+def step_impl(context, table_name):
+
+    # Gherkin table detailing row values required 
+    if not context.table:
+        raise Exception("this step requires a Gherkin table detailing expected row values")
+    
+    # First row is table headers, convert rows into a 2d array of values 
+    headers = context.table.headings
+    values = [row.cells for row in context.table.rows]
+
+    for row in values:
+        query = "WHERE "
+
+        for idx, header in enumerate(headers):
+
+            try: 
+                if(float(row[idx]) == float('0') or float(row[idx])):
+                    # Comparing floats handled separately as isnumeric(0) does not behave as expected and floats cannot be in quotes
+                    query += f"{header} = {row[idx]} "
+            except ValueError:
+                if(row[idx].lower() == "null"):
+                    # If we're comparing to null use the 'IS' comparator 
+                    query += f"{header} IS {row[idx]} "
+                elif(row[idx] == "true" or row[idx] == "false"):
+                    # If we're comparing to a boolean we do not need the single quotes 
+                    query += f"{header} = {row[idx]} "
+                elif(row[idx].startswith("{")):
+                    # If we're comparing JSON convert it to a string first
+                    query += f"TO_JSON_STRING({header}) = '{row[idx]}' "
+                elif(not row[idx].isnumeric() and not row[idx].startswith("'")):
+                    # If we're comparing non-numeric values ensure they are wrapped in single quotes
+                    query += f"{header} = '{row[idx]}' "
+                else: 
+                    # Otherwise compare with a straight '=' operator and no quotes
+                    query += f"{header} = {row[idx]} "
+
+            # If this is not the final value in the row append "AND" to continue the query
+            if(idx < len(headers) - 1):
+                query += "AND "
+
+        # Create the full SQL query to determine if a row exists with all the given values
+        final_query = """
+            SELECT COUNT(*) FROM {TABLE} t
+            {FILTER_QUERY}
+        """.format(TABLE=table_name,FILTER_QUERY=query)
+
+        # Execute the query and check the row count is not 0
+        query_job = context.bigquery.query(final_query)
+        results = query_job.result()
+
+        if(next(results)[0] < 1):
+            raise AssertionError(
+                f"Expected table {table_name} to have a row with the following values but one could not be found: {row}")
