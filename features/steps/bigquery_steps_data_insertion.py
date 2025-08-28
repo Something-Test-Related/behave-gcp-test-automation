@@ -53,7 +53,7 @@ def step_impl(context, sql_path, table_name):
 @step('the gherkin table of data has been inserted into BigQuery table "{table_name}"')
 def step_impl(context, table_name):
     if not context.table:
-        raise ValueError("This step requires a Gherkin table.")
+        raise Exception("This step requires a Gherkin table.")
 
     # Write Gherkin table to a temp CSV
     with tempfile.NamedTemporaryFile("w", newline="", suffix=".csv", delete=False) as temp_csv:

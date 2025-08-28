@@ -10,9 +10,33 @@ def run_subprocess(cmd, allow_error=False):
     out, err = pipe.communicate()
 
     if not allow_error and (pipe.returncode > 0 or err):
-        raise Exception(f"Error while running subprocess command: {cmd} - Error: {err}")
+        raise RuntimeError(f"Error while running subprocess command: {cmd} - Error: {err}")
     
     return out.decode('utf-8')
+
+
+# Verify the given dag file exists in storage
+@given('a DAG file called "{dag}" exists in Storage') 
+def step_impl(context, dag):
+
+    # Gcloud command to list all dags in storage for the test-env environment
+    list_cmd = 'gcloud composer environments storage dags list --environment test-env --location europe-west12 --format="value(name)"'
+    result = run_subprocess(list_cmd)
+    
+    if dag not in result:
+        raise AssertionError(f"No DAG file called {dag} could be found")
+
+
+# Verify the given dag exists in the environment - much slower than verifying it exists in storage
+@given('a DAG called "{dag}" exists') 
+def step_impl(context, dag):
+
+    # Gcloud command to list all dags in the test-env environment
+    list_cmd = "gcloud composer environments run test-env --location europe-west12 dags list"
+    result = run_subprocess(list_cmd)
+
+    if dag not in result:
+        raise AssertionError(f"No DAG called {dag} could be found")
 
 
 # Kick off a dag with no parameters and wait for it to finish
@@ -26,7 +50,7 @@ def step_impl(context, dag):
     run_time = re.search('dag_run_id": "manual__([^"]*)', result)
 
     if not run_time:
-        raise Exception(f"No run time could be determined while triggering DAG {dag}")
+        raise RuntimeError(f"No run time could be determined while triggering DAG {dag}")
     
     # Store the execution time so we can reference this specific run again
     dag_run_time = run_time.group(1)
@@ -52,4 +76,4 @@ def step_impl(context, dag, expected_state):
     state_response = run_subprocess(state_cmd)
 
     if expected_state not in state_response:
-        raise Exception(f"Expected {dag} run status to be {expected_state} but found {state_response}")
+        raise AssertionError(f"Expected {dag} run status to be {expected_state} but found {state_response}")
