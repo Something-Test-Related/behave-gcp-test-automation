@@ -1,5 +1,5 @@
 @bq
-Feature: Integrate with BigQuery and run some checks
+Feature: Load data from various sources into a BigQuery table, run the BigQuery Routine and check the results are as expected in the target table
 
 
     Scenario: Check a table exists in BigQuery with the correct structure
@@ -18,8 +18,9 @@ Feature: Integrate with BigQuery and run some checks
         And the table "test_schemas.basic_table" should be partitioned by column "date_column"
 
 
-    Scenario: Clear down pre-existing data from a table in BigQuery
+    Scenario: Clear down pre-existing data from the required tables in BigQuery
         Given all rows are deleted from table "test_schemas.basic_table"
+        And all rows are deleted from table "test_schemas.target_table"
 
 
     Scenario: Insert fixed CSV data into a table in BigQuery
@@ -39,3 +40,13 @@ Feature: Integrate with BigQuery and run some checks
             | GherkinSample2 | 67890       | 555.44       | 111.22         | false       | 2025-12-26 13:13:13 | 2025-12-26  | 2025-12-26 13:13:13 | NULL                |
             | GherkinSample3 | 11111       | 10.90        | NULL           | true        | 2025-12-27 14:14:14 | 2025-12-27  | 2025-12-27 14:14:14 | {"key13":"value13"} |
         Then table "test_schemas.basic_table" should contain "9" rows
+
+
+    Scenario: Run the BigQuery Routine and check the results are as expected in the target table
+        Given the "basic_procedure" routine is invoked in dataset "test_schemas"
+        Then table "test_schemas.target_table" should contain "9" rows
+        And there should be no duplicate rows in table "test_schemas.target_table"
+        And the sum of column "int_column" in table "test_schemas.target_table" should equal "274038"
+        And the sum of column "float_column" in table "test_schemas.target_table" should equal "2047.57"
+        And the sum of column "numeric_column" in table "test_schemas.target_table" should equal "2392.16"
+        And column "string_column" in table "test_schemas.target_table" should not contain any NULL values
