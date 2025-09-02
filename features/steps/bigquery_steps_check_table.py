@@ -1,4 +1,5 @@
 from behave import *
+from decimal import Decimal, ROUND_HALF_UP
 
 
 # Check table with the given name exists
@@ -25,9 +26,9 @@ def step_impl(context, table_name):
 
     structure_query = """
     SELECT field_path, data_type
-    FROM {dataset}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS
-    WHERE table_name = "{table}"
-    """.format(dataset=table_path[0],table=table_path[1])
+    FROM {DATASET}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS
+    WHERE table_name = "{TABLE}"
+    """.format(DATASET=table_path[0],TABLE=table_path[1])
 
     query_job = context.bigquery.query(structure_query)
     result = query_job.result()
@@ -52,13 +53,13 @@ def step_impl(context, table_name, partition):
 
     expected_partition = partition.strip()
 
-    # BigQuery query to get partitioning column
+    # Query to get partitioning column
     partition_query = """
     SELECT column_name
-    FROM {dataset}.INFORMATION_SCHEMA.COLUMNS
-    WHERE table_name="{table}"
+    FROM {DATASET}.INFORMATION_SCHEMA.COLUMNS
+    WHERE table_name= "{TABLE}"
     AND is_partitioning_column = "YES"
-    """.format(dataset=table_path[0], table=table_path[1])
+    """.format(DATASET=table_path[0], TABLE=table_path[1])
 
     # Execute the query
     query_job = context.bigquery.query(partition_query)
@@ -83,7 +84,7 @@ def step_impl(context, table_name):
     partition_query = """
     SELECT column_name
     FROM {DATASET}.INFORMATION_SCHEMA.COLUMNS
-    WHERE table_name="{TABLE}"
+    WHERE table_name = "{TABLE}"
     AND is_partitioning_column = "YES"
     """.format(DATASET=table_path[0], TABLE=table_path[1])
 
@@ -102,8 +103,8 @@ def step_impl(context, table_name):
 def step_impl(context, table_name, row_count):
 
     row_count_query = """
-    SELECT COUNT(*) FROM {TABLE_NAME} t
-    """.format(TABLE_NAME=table_name)
+    SELECT COUNT(*) FROM {TABLE} t
+    """.format(TABLE=table_name)
 
     query_job = context.bigquery.query(row_count_query)
     results = query_job.result()
@@ -171,3 +172,88 @@ def step_impl(context, table_name):
         if(next(results)[0] < 1):
             raise AssertionError(
                 f"Expected table {table_name} to have a row with the following values but one could not be found: {row}")
+
+
+# Check that there are no duplicate rows in given table excluding JSON, ARRAY and STRUCT datatype columns
+@then('there should be no duplicate rows in table "{table_name}"')
+def step_impl(context, table_name):
+    table_path = table_name.split(".")
+
+    # Get column names and data types
+    columns_query = """
+        SELECT column_name, data_type
+        FROM `{DATASET}.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = "{TABLE}"
+        ORDER BY ordinal_position
+    """.format(DATASET=table_path[0], TABLE=table_path[1])
+
+    EXCLUDED_TYPES = {"JSON", "ARRAY", "STRUCT"}
+
+    # Filter out JSON, ARRAY and STRUCT columns as these cannot be grouped
+    column_results = context.bigquery.query(columns_query).result()
+    column_names = [row.column_name for row in column_results if row.data_type.upper() not in EXCLUDED_TYPES]
+
+    if not column_names:
+        raise Exception(f"No columns found in table {table_name}")
+
+    # Build GROUP BY clause
+    columns = ", ".join(f"`{name}`" for name in column_names)
+
+    # Check for duplicate rows
+    duplicate_query = """
+        SELECT COUNT(*) as duplicate_count
+        FROM {TABLE}
+        GROUP BY {COLUMNS}
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """.format(TABLE=table_name, COLUMNS=columns)
+    
+    results = context.bigquery.query(duplicate_query).result()
+
+    if next(results, None):
+        raise AssertionError(
+            f"Duplicate rows found in table {table_name}")
+
+
+# Check the sum of all values in a given column of given table are as expected to 2dp
+@then('the sum of column "{column}" in table "{table_name}" should equal "{expected_sum}"')
+def step_impl(context, column, table_name, expected_sum):
+
+    sum_query = """
+    SELECT SUM({COLUMN}) as total_sum
+    FROM {TABLE} t
+    """.format(COLUMN=column, TABLE=table_name)
+
+    # Execute the query
+    query_job = context.bigquery.query(sum_query)
+    results = query_job.result()
+
+    # Convert float to string to avoid float precision issues when using Decimal then convert to Decimal with proper rounding
+    for result in results:
+        actual_sum = Decimal(str(result["total_sum"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # Convert expected value to Decimal and round to 2 decimal places to ensure consistent comparison
+    expected_sum = Decimal(expected_sum).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    if actual_sum != expected_sum:
+        raise AssertionError(
+            f"Expected sum of {column} in {table_name} to be {expected_sum}, but got {actual_sum}")
+    
+
+# Check that there are no NULLs in a given column of given table
+@then('column "{column}" in table "{table_name}" should not contain any NULL values')
+def step_impl(context, column, table_name):
+
+    null_count_query = """
+    SELECT COUNT(*) FROM {TABLE} t
+    WHERE {COLUMN} IS NULL
+    """.format(TABLE=table_name, COLUMN=column)
+
+    query_job = context.bigquery.query(null_count_query)
+    results = query_job.result()
+
+    actual_null_count = next(results)[0]
+
+    if(actual_null_count != 0):
+        raise AssertionError(
+            f"Expected {column} in {table_name} to have no NULL values, but found {actual_null_count} NULLs")
