@@ -1,7 +1,7 @@
 # behave-gcp-test-automation
 BDD Test Automation for GCP using the Python Behave test framework. 
 This framework can currently interact with BigQuery, Storage, and Airflow/DAGs and has example tests for each in the `features` folder. 
-This framework can be easily expanded to interact with more GCP service and components by building out the `features/enrivonment.py` file.
+This framework can be easily expanded to interact with more GCP services and components by building out the `features/environment.py` file.
   
   
 ## Prerequisites
@@ -48,4 +48,4 @@ To run specific feature files by name use the `-i` or `--include` option and eit
 ```behave -i storage```
 
 To run all tests using a specific tag use the `-t` or `--tags` option and the tag name, e.g. to run all tests tagged with the BigQuery `@bq` tag use command 
-```behave -t bq`
+```behave -t bq```
